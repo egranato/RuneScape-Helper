@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, clipboard } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs/promises');
 
@@ -61,6 +61,11 @@ ipcMain.handle('fs:readFile', async (_event, filePath, encoding = 'utf-8') => {
 
 ipcMain.handle('fs:writeFile', async (_event, filePath, data, encoding = 'utf-8') => {
   await fs.writeFile(filePath, data, encoding);
+  return true;
+});
+
+ipcMain.handle('clipboard:writeText', (_event, text) => {
+  clipboard.writeText(String(text));
   return true;
 });
 

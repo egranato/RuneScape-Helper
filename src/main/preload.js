@@ -8,4 +8,5 @@ contextBridge.exposeInMainWorld('api', {
   geMapping: () => ipcRenderer.invoke('ge:mapping'),
   geLatest: () => ipcRenderer.invoke('ge:latest'),
   geVolume1h: () => ipcRenderer.invoke('ge:volume1h'),
+  copyToClipboard: (text) => ipcRenderer.invoke('clipboard:writeText', text),
 });

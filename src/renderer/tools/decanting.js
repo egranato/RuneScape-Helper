@@ -18,8 +18,8 @@ ToolRegistry.register({
         price and includes the 2% GE tax on the potion you'd be selling.
         Volume is the smaller of the two potions' trade count over the last
         hour - the side that would bottleneck you. Enter a buy quantity on
-        any row to see total profit. Click a column header to re-sort, or the
-        arrow next to a potion's name for its raw insta-buy/insta-sell prices.
+        any row to see total profit. Click a column header to re-sort, or
+        click a row to see its recommended buy/sell prices above the table.
       </p>
       <div class="field" style="display: flex; align-items: center; gap: 8px;">
         <input type="checkbox" id="hideLowVolume" checked style="width: auto;" />
@@ -27,12 +27,14 @@ ToolRegistry.register({
       </div>
       <button type="button" id="scanBtn">Check prices</button>
       <div class="muted" id="scanStatus" style="margin-top: 10px;"></div>
+      <div id="selectedPrice" style="margin-top: 12px;"></div>
       <div id="scanResults" style="margin-top: 12px;"></div>
     `;
 
     const scanBtn = container.querySelector('#scanBtn');
     const scanStatus = container.querySelector('#scanStatus');
     const scanResults = container.querySelector('#scanResults');
+    const selectedPriceEl = container.querySelector('#selectedPrice');
     const hideLowVolumeCheckbox = container.querySelector('#hideLowVolume');
 
     const fmt = (n) => Math.round(n).toLocaleString('en-US');
@@ -94,6 +96,46 @@ ToolRegistry.register({
     let currentOpportunities = [];
     let hasScanned = false;
     let sortState = { key: 'batchProfit', dir: 'desc' };
+    let selectedOpportunity = null;
+
+    function renderSelectedPrice() {
+      if (!selectedOpportunity) {
+        selectedPriceEl.innerHTML = '';
+        return;
+      }
+
+      const o = selectedOpportunity;
+      selectedPriceEl.innerHTML = `
+        <div class="card" style="max-width: 560px;">
+          <div class="result-line"><strong>${o.name}</strong> (${o.fromDose}-dose &rarr; ${o.toDose}-dose)</div>
+          <div class="price-copy-row">
+            <span class="muted">Recommended buy price (${o.fromDose}-dose)</span>
+            <span class="result-value profit">${fmt(o.fromHigh)} gp</span>
+            <button type="button" class="copy-btn" data-copy="${o.fromHigh}">Copy</button>
+          </div>
+          <div class="price-copy-row">
+            <span class="muted">Recommended sell price (${o.toDose}-dose)</span>
+            <span class="result-value profit">${fmt(o.toLow)} gp</span>
+            <button type="button" class="copy-btn" data-copy="${o.toLow}">Copy</button>
+          </div>
+        </div>
+      `;
+
+      for (const btn of selectedPriceEl.querySelectorAll('.copy-btn')) {
+        btn.addEventListener('click', async () => {
+          try {
+            await window.api.copyToClipboard(btn.dataset.copy);
+            const original = btn.textContent;
+            btn.textContent = 'Copied!';
+            setTimeout(() => {
+              btn.textContent = original;
+            }, 1200);
+          } catch (err) {
+            console.error('copy failed', err);
+          }
+        });
+      }
+    }
 
     function renderTable() {
       if (!hasScanned) return;
@@ -140,22 +182,10 @@ ToolRegistry.register({
               .map((o, idx) => {
                 const tier = volumeTier(o.bottleneckVolume);
                 const result = totalProfitFor(o, o.buyQty);
-                const detailRow = o.expanded
-                  ? `
-                    <tr class="detail-row">
-                      <td colspan="7">
-                        <div class="price-detail">
-                          <span>${o.fromDose}-dose - insta-buy <strong>${fmt(o.fromHigh)}</strong> gp, insta-sell <strong>${fmt(o.fromLow)}</strong> gp</span>
-                          <span>${o.toDose}-dose - insta-buy <strong>${fmt(o.toHigh)}</strong> gp, insta-sell <strong>${fmt(o.toLow)}</strong> gp</span>
-                        </div>
-                      </td>
-                    </tr>
-                  `
-                  : '';
 
                 return `
-                  <tr data-idx="${idx}">
-                    <td><span class="row-toggle" data-idx="${idx}">${o.expanded ? '▾' : '▸'}</span>${o.name}</td>
+                  <tr data-idx="${idx}" class="${o === selectedOpportunity ? 'selected' : ''}">
+                    <td>${o.name}</td>
                     <td>${o.fromDose}-dose &rarr; ${o.toDose}-dose</td>
                     <td class="profit">${fmt(o.batchProfit)} gp</td>
                     <td class="profit">${fmt(o.batchProfit / o.toCount)} gp</td>
@@ -172,7 +202,6 @@ ToolRegistry.register({
                     </td>
                     <td class="profit qty-total">${result ? fmt(result.totalProfit) + ' gp' : '—'}</td>
                   </tr>
-                  ${detailRow}
                 `;
               })
               .join('')}
@@ -201,13 +230,16 @@ ToolRegistry.register({
           const result = totalProfitFor(o, o.buyQty);
           totalCell.textContent = result ? `${fmt(result.totalProfit)} gp` : '—';
         });
-      }
 
-      for (const toggle of scanResults.querySelectorAll('.row-toggle')) {
-        toggle.addEventListener('click', () => {
-          const o = visible[Number(toggle.dataset.idx)];
-          o.expanded = !o.expanded;
-          renderTable();
+        tr.addEventListener('click', (e) => {
+          if (e.target.closest('.qty-input')) return;
+
+          selectedOpportunity = o;
+          renderSelectedPrice();
+
+          for (const rowEl of scanResults.querySelectorAll('tr[data-idx]')) {
+            rowEl.classList.toggle('selected', visible[Number(rowEl.dataset.idx)] === selectedOpportunity);
+          }
         });
       }
     }
@@ -216,6 +248,8 @@ ToolRegistry.register({
       scanBtn.disabled = true;
       scanStatus.textContent = 'Fetching item list and prices...';
       scanResults.innerHTML = '';
+      selectedOpportunity = null;
+      renderSelectedPrice();
 
       try {
         const [mapping, latest, hourly] = await Promise.all([
