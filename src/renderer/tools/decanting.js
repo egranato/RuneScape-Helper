@@ -2,8 +2,8 @@
 //
 // Doses are conserved, not potion count: 4 potions of the 3-dose version
 // hold the same total doses (12) as 3 potions of the 4-dose version. So the
-// only two batch sizes that make sense to compare are "4x 3-dose" against
-// "3x 4-dose" - that's the smallest whole-number trade in each direction.
+// smallest whole-number trade between dose A and dose B is
+// lcm(A,B)/A potions of A <-> lcm(A,B)/B potions of B.
 ToolRegistry.register({
   id: 'decanting',
   name: 'Decanting Calculator',
@@ -12,41 +12,30 @@ ToolRegistry.register({
     container.innerHTML = `
       <h2>Decanting Calculator</h2>
       <p class="muted">
-        Enter the price of the 3-dose and 4-dose versions of a potion.
-        4x 3-dose = 3x 4-dose in total doses, so that's the batch this
-        compares. Includes the 2% GE tax on whichever potion you'd be
-        selling.
+        Pulls live prices from the OSRS Wiki and lists every potion with a
+        profitable 3-dose/4-dose or 1-dose/2-dose decant right now, sorted by
+        profit per batch. Uses the midpoint of each item's insta-buy/insta-sell
+        price and includes the 2% GE tax on the potion you'd be selling.
+        Volume is the smaller of the two potions' trade count over the last
+        hour - the side that would bottleneck you. Enter a buy quantity on
+        any row to see total profit. Click a column header to re-sort, or the
+        arrow next to a potion's name for its raw insta-buy/insta-sell prices.
       </p>
-      <div class="field">
-        <label for="price3">Price per 3-dose potion</label>
-        <input type="number" id="price3" min="0" step="1" placeholder="e.g. 900" />
+      <div class="field" style="display: flex; align-items: center; gap: 8px;">
+        <input type="checkbox" id="hideLowVolume" checked style="width: auto;" />
+        <label for="hideLowVolume" style="margin: 0;">Hide low / very low volume potions</label>
       </div>
-      <div class="field">
-        <label for="price4">Price per 4-dose potion</label>
-        <input type="number" id="price4" min="0" step="1" placeholder="e.g. 1250" />
-      </div>
-      <div class="card" id="result">
-        <div class="muted">Enter both prices to see which direction profits.</div>
-      </div>
-
-      <div class="field" style="margin-top: 20px;">
-        <label id="buyQtyLabel" for="buyQty">How many will you buy?</label>
-        <input type="number" id="buyQty" min="0" step="1" placeholder="e.g. 500" />
-      </div>
-      <div class="card" id="qtyResult">
-        <div class="muted">Enter prices and a quantity to see total profit.</div>
-      </div>
+      <button type="button" id="scanBtn">Check prices</button>
+      <div class="muted" id="scanStatus" style="margin-top: 10px;"></div>
+      <div id="scanResults" style="margin-top: 12px;"></div>
     `;
 
-    const price3Input = container.querySelector('#price3');
-    const price4Input = container.querySelector('#price4');
-    const resultEl = container.querySelector('#result');
-    const buyQtyLabel = container.querySelector('#buyQtyLabel');
-    const buyQtyInput = container.querySelector('#buyQty');
-    const qtyResultEl = container.querySelector('#qtyResult');
+    const scanBtn = container.querySelector('#scanBtn');
+    const scanStatus = container.querySelector('#scanStatus');
+    const scanResults = container.querySelector('#scanResults');
+    const hideLowVolumeCheckbox = container.querySelector('#hideLowVolume');
 
-    const fmt = (n) =>
-      Math.round(n).toLocaleString('en-US');
+    const fmt = (n) => Math.round(n).toLocaleString('en-US');
 
     // Standard Grand Exchange tax: 2% of the sale price, rounded down,
     // exempt under 100gp, capped at 5,000,000 gp per item.
@@ -55,91 +44,256 @@ ToolRegistry.register({
       return Math.min(Math.floor(price * 0.02), 5_000_000);
     }
 
-    function update() {
-      const price3 = parseFloat(price3Input.value);
-      const price4 = parseFloat(price4Input.value);
-
-      if (!Number.isFinite(price3) || !Number.isFinite(price4) || price3 < 0 || price4 < 0) {
-        resultEl.innerHTML = '<div class="muted">Enter both prices to see which direction profits.</div>';
-        qtyResultEl.innerHTML = '<div class="muted">Enter prices and a quantity to see total profit.</div>';
-        return;
-      }
-
-      const tax3 = geTax(price3);
-      const tax4 = geTax(price4);
-
-      // Buy 4x 3-dose (no tax on buying), decant into 3x 4-dose, sell those (taxed).
-      const revenue3to4 = 3 * (price4 - tax4);
-      const cost3to4 = 4 * price3;
-      const profit3to4 = revenue3to4 - cost3to4;
-
-      // Buy 3x 4-dose, decant into 4x 3-dose, sell those (taxed).
-      const revenue4to3 = 4 * (price3 - tax3);
-      const cost4to3 = 3 * price4;
-      const profit4to3 = revenue4to3 - cost4to3;
-
-      if (profit3to4 <= 0 && profit4to3 <= 0) {
-        resultEl.innerHTML = `
-          <div class="result-line">No profit either direction</div>
-          <div class="muted">After 2% GE tax, neither decanting direction comes out ahead.</div>
-        `;
-        buyQtyLabel.textContent = 'How many will you buy?';
-        qtyResultEl.innerHTML = '<div class="muted">No profitable direction, so there\'s nothing to total.</div>';
-        return;
-      }
-
-      const decantUp = profit3to4 > profit4to3;
-      const batchProfit = decantUp ? profit3to4 : profit4to3;
-      const taxPaid = decantUp ? 3 * tax4 : 4 * tax3;
-      const perFinalPotion = decantUp ? batchProfit / 3 : batchProfit / 4;
-
-      resultEl.innerHTML = `
-        <div class="result-line">
-          Decant <span class="result-value profit">${decantUp ? '3-dose → 4-dose' : '4-dose → 3-dose'}</span>
-        </div>
-        <div class="result-line">
-          Profit per batch (${decantUp ? '4x 3-dose → 3x 4-dose' : '3x 4-dose → 4x 3-dose'}):
-          <span class="result-value profit">${fmt(batchProfit)} gp</span>
-        </div>
-        <div class="muted">= ${fmt(perFinalPotion)} gp per ${decantUp ? '4-dose' : '3-dose'} potion produced</div>
-        <div class="muted">GE tax paid on batch: ${fmt(taxPaid)} gp</div>
-      `;
-
-      // Buy-side potion is whatever you purchase before decanting;
-      // its batch size is how many of it make up one full batch.
-      const buyLabel = decantUp ? '3-dose' : '4-dose';
-      const sellLabel = decantUp ? '4-dose' : '3-dose';
-      const buyBatchSize = decantUp ? 4 : 3;
-      const sellBatchSize = decantUp ? 3 : 4;
-
-      buyQtyLabel.textContent = `How many ${buyLabel} potions will you buy?`;
-
-      const buyQty = parseInt(buyQtyInput.value, 10);
-      if (!Number.isFinite(buyQty) || buyQty <= 0) {
-        qtyResultEl.innerHTML = `<div class="muted">Enter how many ${buyLabel} potions you'll buy to see total profit.</div>`;
-        return;
-      }
-
-      const completeBatches = Math.floor(buyQty / buyBatchSize);
-      const leftover = buyQty % buyBatchSize;
-      const totalProfit = completeBatches * batchProfit;
-      const potionsProduced = completeBatches * sellBatchSize;
-
-      qtyResultEl.innerHTML = `
-        <div class="result-line">
-          Total profit from ${fmt(buyQty)} ${buyLabel} potions:
-          <span class="result-value profit">${fmt(totalProfit)} gp</span>
-        </div>
-        <div class="muted">= ${fmt(completeBatches)} batches → ${fmt(potionsProduced)} ${sellLabel} potions sold</div>
-        ${leftover > 0
-          ? `<div class="muted">${fmt(leftover)} ${buyLabel} potion(s) left over - not enough to fill another batch, ignored in this total.</div>`
-          : ''}
-      `;
+    function gcd(a, b) {
+      return b === 0 ? a : gcd(b, a % b);
     }
 
-    price3Input.addEventListener('input', update);
-    price4Input.addEventListener('input', update);
-    buyQtyInput.addEventListener('input', update);
-    price3Input.focus();
+    function bestDecantDirection(doseA, priceA, doseB, priceB) {
+      const totalDoses = (doseA * doseB) / gcd(doseA, doseB);
+      const countA = totalDoses / doseA;
+      const countB = totalDoses / doseB;
+
+      const profitAtoB = countB * (priceB - geTax(priceB)) - countA * priceA;
+      const profitBtoA = countA * (priceA - geTax(priceA)) - countB * priceB;
+
+      if (profitAtoB <= 0 && profitBtoA <= 0) return null;
+
+      return profitAtoB > profitBtoA
+        ? { fromDose: doseA, toDose: doseB, fromCount: countA, toCount: countB, batchProfit: profitAtoB }
+        : { fromDose: doseB, toDose: doseA, fromCount: countB, toCount: countA, batchProfit: profitBtoA };
+    }
+
+    // Potion dose variants are named like "Prayer potion(4)" in the wiki's
+    // item mapping - no space before the parenthesis.
+    const DOSE_NAME_PATTERN = /^(.*)\((\d)\)$/;
+    const DOSE_PAIRS = [
+      [3, 4],
+      [1, 2],
+    ];
+
+    // Trailing-1h trade count thresholds. Below "Low", an item can easily
+    // take days/weeks to fully offload at any real volume.
+    function volumeTier(v) {
+      if (v >= 1000) return { label: 'High', className: 'vol-high' };
+      if (v >= 100) return { label: 'Medium', className: 'vol-medium' };
+      if (v >= 10) return { label: 'Low', className: 'vol-low' };
+      return { label: 'Very low', className: 'vol-verylow' };
+    }
+
+    function totalProfitFor(o, buyQty) {
+      if (!Number.isFinite(buyQty) || buyQty <= 0) return null;
+      const completeBatches = Math.floor(buyQty / o.fromCount);
+      return {
+        completeBatches,
+        leftover: buyQty % o.fromCount,
+        totalProfit: completeBatches * o.batchProfit,
+        potionsProduced: completeBatches * o.toCount,
+      };
+    }
+
+    let currentOpportunities = [];
+    let hasScanned = false;
+    let sortState = { key: 'batchProfit', dir: 'desc' };
+
+    function renderTable() {
+      if (!hasScanned) return;
+
+      const { key, dir } = sortState;
+      const factor = dir === 'asc' ? 1 : -1;
+      currentOpportunities.sort((a, b) => factor * (a[key] - b[key]));
+
+      const hideLowVolume = hideLowVolumeCheckbox.checked;
+      const visible = hideLowVolume
+        ? currentOpportunities.filter((o) => {
+            const tier = volumeTier(o.bottleneckVolume).label;
+            return tier !== 'Low' && tier !== 'Very low';
+          })
+        : currentOpportunities;
+
+      if (currentOpportunities.length === 0) {
+        scanResults.innerHTML = '<div class="muted">No profitable decanting opportunities found right now.</div>';
+        return;
+      }
+
+      if (visible.length === 0) {
+        scanResults.innerHTML = '<div class="muted">Nothing left after hiding low-volume potions - try unchecking the box above.</div>';
+        return;
+      }
+
+      const arrow = (colKey) => (key === colKey ? (dir === 'asc' ? ' ↑' : ' ↓') : '');
+
+      scanResults.innerHTML = `
+        <table class="scan-table">
+          <thead>
+            <tr>
+              <th>Potion</th>
+              <th>Decant</th>
+              <th class="sortable" data-sort="batchProfit">Profit / batch${arrow('batchProfit')}</th>
+              <th>Profit / potion</th>
+              <th class="sortable" data-sort="bottleneckVolume">Volume (1h)${arrow('bottleneckVolume')}</th>
+              <th>Buy qty</th>
+              <th>Total profit</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${visible
+              .map((o, idx) => {
+                const tier = volumeTier(o.bottleneckVolume);
+                const result = totalProfitFor(o, o.buyQty);
+                const detailRow = o.expanded
+                  ? `
+                    <tr class="detail-row">
+                      <td colspan="7">
+                        <div class="price-detail">
+                          <span>${o.fromDose}-dose - insta-buy <strong>${fmt(o.fromHigh)}</strong> gp, insta-sell <strong>${fmt(o.fromLow)}</strong> gp</span>
+                          <span>${o.toDose}-dose - insta-buy <strong>${fmt(o.toHigh)}</strong> gp, insta-sell <strong>${fmt(o.toLow)}</strong> gp</span>
+                        </div>
+                      </td>
+                    </tr>
+                  `
+                  : '';
+
+                return `
+                  <tr data-idx="${idx}">
+                    <td><span class="row-toggle" data-idx="${idx}">${o.expanded ? '▾' : '▸'}</span>${o.name}</td>
+                    <td>${o.fromDose}-dose &rarr; ${o.toDose}-dose</td>
+                    <td class="profit">${fmt(o.batchProfit)} gp</td>
+                    <td class="profit">${fmt(o.batchProfit / o.toCount)} gp</td>
+                    <td>
+                      <span class="vol-badge ${tier.className}">${tier.label}</span>
+                      <span class="muted">${fmt(o.bottleneckVolume)}/hr</span>
+                    </td>
+                    <td>
+                      <input
+                        type="number" class="qty-input" min="0" step="1"
+                        placeholder="e.g. 500"
+                        value="${o.buyQty ?? ''}"
+                      />
+                    </td>
+                    <td class="profit qty-total">${result ? fmt(result.totalProfit) + ' gp' : '—'}</td>
+                  </tr>
+                  ${detailRow}
+                `;
+              })
+              .join('')}
+          </tbody>
+        </table>
+      `;
+
+      for (const th of scanResults.querySelectorAll('th.sortable')) {
+        th.addEventListener('click', () => {
+          const sortKey = th.dataset.sort;
+          sortState = sortState.key === sortKey
+            ? { key: sortKey, dir: sortState.dir === 'asc' ? 'desc' : 'asc' }
+            : { key: sortKey, dir: 'desc' };
+          renderTable();
+        });
+      }
+
+      for (const tr of scanResults.querySelectorAll('tr[data-idx]')) {
+        const o = visible[Number(tr.dataset.idx)];
+        const qtyInput = tr.querySelector('.qty-input');
+        const totalCell = tr.querySelector('.qty-total');
+
+        qtyInput.addEventListener('input', () => {
+          const qty = parseInt(qtyInput.value, 10);
+          o.buyQty = Number.isFinite(qty) && qty > 0 ? qty : undefined;
+          const result = totalProfitFor(o, o.buyQty);
+          totalCell.textContent = result ? `${fmt(result.totalProfit)} gp` : '—';
+        });
+      }
+
+      for (const toggle of scanResults.querySelectorAll('.row-toggle')) {
+        toggle.addEventListener('click', () => {
+          const o = visible[Number(toggle.dataset.idx)];
+          o.expanded = !o.expanded;
+          renderTable();
+        });
+      }
+    }
+
+    async function runScan() {
+      scanBtn.disabled = true;
+      scanStatus.textContent = 'Fetching item list and prices...';
+      scanResults.innerHTML = '';
+
+      try {
+        const [mapping, latest, hourly] = await Promise.all([
+          window.api.geMapping(),
+          window.api.geLatest(),
+          window.api.geVolume1h(),
+        ]);
+
+        const potionsByName = new Map();
+        for (const item of mapping) {
+          const match = DOSE_NAME_PATTERN.exec(item.name);
+          if (!match) continue;
+          const dose = Number(match[2]);
+          if (dose < 1 || dose > 4) continue;
+
+          const baseName = match[1];
+          if (!potionsByName.has(baseName)) potionsByName.set(baseName, {});
+          potionsByName.get(baseName)[dose] = item.id;
+        }
+
+        const midPrice = (id) => {
+          const entry = latest[id];
+          if (!entry || entry.high == null || entry.low == null) return null;
+          return (entry.high + entry.low) / 2;
+        };
+
+        const hourlyVolume = (id) => {
+          const entry = hourly[id];
+          if (!entry) return 0;
+          return (entry.highPriceVolume || 0) + (entry.lowPriceVolume || 0);
+        };
+
+        const opportunities = [];
+        for (const [name, doseIds] of potionsByName) {
+          for (const [doseA, doseB] of DOSE_PAIRS) {
+            const idA = doseIds[doseA];
+            const idB = doseIds[doseB];
+            if (!idA || !idB) continue;
+
+            const priceA = midPrice(idA);
+            const priceB = midPrice(idB);
+            if (priceA == null || priceB == null) continue;
+
+            const direction = bestDecantDirection(doseA, priceA, doseB, priceB);
+            if (!direction) continue;
+
+            const bottleneckVolume = Math.min(hourlyVolume(idA), hourlyVolume(idB));
+
+            const entryA = latest[idA];
+            const entryB = latest[idB];
+            const [fromEntry, toEntry] = direction.fromDose === doseA ? [entryA, entryB] : [entryB, entryA];
+
+            opportunities.push({
+              name,
+              ...direction,
+              bottleneckVolume,
+              fromHigh: fromEntry.high,
+              fromLow: fromEntry.low,
+              toHigh: toEntry.high,
+              toLow: toEntry.low,
+            });
+          }
+        }
+
+        currentOpportunities = opportunities;
+        hasScanned = true;
+        renderTable();
+
+        scanStatus.textContent = `Checked ${potionsByName.size} potions - ${opportunities.length} profitable right now.`;
+      } catch (err) {
+        console.error('price scan failed', err);
+        scanStatus.textContent = `Failed to fetch prices: ${err.message}`;
+      } finally {
+        scanBtn.disabled = false;
+      }
+    }
+
+    scanBtn.addEventListener('click', runScan);
+    hideLowVolumeCheckbox.addEventListener('change', renderTable);
   },
 });

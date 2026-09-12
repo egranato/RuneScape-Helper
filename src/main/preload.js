@@ -5,4 +5,7 @@ contextBridge.exposeInMainWorld('api', {
   saveFile: (options) => ipcRenderer.invoke('dialog:saveFile', options),
   readFile: (filePath, encoding) => ipcRenderer.invoke('fs:readFile', filePath, encoding),
   writeFile: (filePath, data, encoding) => ipcRenderer.invoke('fs:writeFile', filePath, data, encoding),
+  geMapping: () => ipcRenderer.invoke('ge:mapping'),
+  geLatest: () => ipcRenderer.invoke('ge:latest'),
+  geVolume1h: () => ipcRenderer.invoke('ge:volume1h'),
 });
