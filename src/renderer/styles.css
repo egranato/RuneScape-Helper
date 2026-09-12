@@ -1,0 +1,169 @@
+:root {
+  --c-lightest: #c9c9c9;
+  --c-gold: #bfa75d;
+  --c-mid: #838181;
+  --c-dark: #606060;
+  --c-darkest: #222222;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  height: 100%;
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 14px;
+  color: var(--c-lightest);
+  background: var(--c-darkest);
+}
+
+#app {
+  display: flex;
+  height: 100vh;
+}
+
+#sidebar {
+  width: 220px;
+  flex-shrink: 0;
+  background: var(--c-darkest);
+  border-right: 1px solid var(--c-dark);
+  display: flex;
+  flex-direction: column;
+}
+
+#sidebar-header {
+  padding: 16px;
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--c-gold);
+  border-bottom: 1px solid var(--c-dark);
+}
+
+#tool-list {
+  list-style: none;
+  margin: 0;
+  padding: 8px;
+  overflow-y: auto;
+}
+
+#tool-list li {
+  padding: 8px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  margin-bottom: 2px;
+  color: var(--c-lightest);
+}
+
+#tool-list li:hover {
+  background: var(--c-dark);
+}
+
+#tool-list li.active {
+  background: var(--c-gold);
+  color: var(--c-darkest);
+  font-weight: 600;
+}
+
+#tool-list .empty {
+  padding: 8px 12px;
+  color: var(--c-mid);
+  cursor: default;
+}
+
+#tool-list .empty:hover {
+  background: none;
+}
+
+#content {
+  flex: 1;
+  padding: 24px;
+  overflow-y: auto;
+  background: var(--c-darkest);
+}
+
+#empty-state {
+  color: var(--c-mid);
+}
+
+/* Shared form controls, for tools to reuse */
+
+#content h2 {
+  margin-top: 0;
+  color: var(--c-gold);
+}
+
+#content label {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--c-mid);
+  font-size: 13px;
+}
+
+#content input[type="number"],
+#content input[type="text"] {
+  background: var(--c-dark);
+  color: var(--c-lightest);
+  border: 1px solid var(--c-mid);
+  border-radius: 4px;
+  padding: 8px 10px;
+  font-size: 14px;
+  width: 100%;
+  max-width: 260px;
+}
+
+#content input[type="number"]:focus,
+#content input[type="text"]:focus {
+  outline: none;
+  border-color: var(--c-gold);
+}
+
+#content button {
+  background: var(--c-gold);
+  color: var(--c-darkest);
+  border: none;
+  border-radius: 4px;
+  padding: 8px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+#content button:hover {
+  filter: brightness(1.1);
+}
+
+#content .field {
+  margin-bottom: 16px;
+}
+
+#content .card {
+  background: var(--c-dark);
+  border: 1px solid var(--c-mid);
+  border-radius: 8px;
+  padding: 16px 20px;
+  max-width: 420px;
+}
+
+#content .result-line {
+  font-size: 16px;
+  margin: 6px 0;
+}
+
+#content .result-value {
+  font-weight: 700;
+}
+
+#content .profit {
+  color: var(--c-gold);
+}
+
+#content .loss {
+  color: var(--c-mid);
+}
+
+#content .muted {
+  color: var(--c-mid);
+  font-size: 13px;
+}

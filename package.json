@@ -1,0 +1,31 @@
+{
+  "name": "quick-tools",
+  "version": "1.0.0",
+  "description": "Personal toolbox app - a shell for quick one-off utility tools",
+  "main": "src/main/main.js",
+  "author": "Ethan Granato",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder"
+  },
+  "devDependencies": {
+    "electron": "^32.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "com.ethangranato.quicktools",
+    "productName": "QuickTools",
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "output": "build"
+    },
+    "win": {
+      "target": "portable"
+    }
+  }
+}

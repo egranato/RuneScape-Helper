@@ -1,0 +1,21 @@
+// Copy this file to <name>.js, fill it in, then:
+//   1. Add <script src="tools/<name>.js"></script> to index.html (before app.js)
+// Rename the file extension from .js.template to .js once it's a real tool
+// so it isn't mistaken for a template again.
+ToolRegistry.register({
+  id: 'example',
+  name: 'Example Tool',
+
+  // container: the <main id="content"> element, already cleared for you.
+  // api: bridge exposed by preload.js -> openFile, saveFile, readFile, writeFile.
+  render(container, api) {
+    container.innerHTML = `
+      <h2>Example Tool</h2>
+      <p>Build your UI here.</p>
+    `;
+
+    // Optional: return a cleanup function if you registered listeners/timers
+    // that need to be torn down when the user switches tools.
+    // return () => { ... };
+  },
+});

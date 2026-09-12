@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>QuickTools</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app">
+    <nav id="sidebar">
+      <div id="sidebar-header">QuickTools</div>
+      <ul id="tool-list"></ul>
+    </nav>
+    <main id="content">
+      <div id="empty-state">Select a tool from the list.</div>
+    </main>
+  </div>
+  <script src="registry.js"></script>
+  <!-- Add new tool <script> tags here, one per tool file in tools/ -->
+  <script src="tools/decanting.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
