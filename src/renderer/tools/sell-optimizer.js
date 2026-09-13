@@ -21,7 +21,9 @@ ToolRegistry.register({
         subtracts the nature rune cost (assumes a fire staff, so fire runes
         are free). The suggested GE price is a heuristic based on recent
         trade volume vs. your quantity - there's no real order-book depth in
-        this data, so treat it as a starting point, not gospel.
+        this data, so treat it as a starting point, not gospel. For potions,
+        it also checks whether decanting to a different dose count before
+        selling would net more than selling as-is.
       </p>
       <div class="field">
         <label for="itemName">Item name</label>
@@ -53,7 +55,16 @@ ToolRegistry.register({
       return Math.min(Math.floor(price * 0.02), 5_000_000);
     }
 
+    function gcd(a, b) {
+      return b === 0 ? a : gcd(b, a % b);
+    }
+
+    // Potion dose variants are named like "Prayer potion(4)" in the wiki's
+    // item mapping - no space before the parenthesis.
+    const DOSE_NAME_PATTERN = /^(.*)\((\d)\)$/;
+
     let mappingByName = null;
+    let potionDoseMap = null;
     let mappingLoaded = false;
 
     async function ensureMapping() {
@@ -62,10 +73,19 @@ ToolRegistry.register({
 
       const mapping = await window.api.geMapping();
       mappingByName = new Map();
+      potionDoseMap = new Map();
       const names = [];
       for (const item of mapping) {
         mappingByName.set(item.name.toLowerCase(), item);
         names.push(item.name);
+
+        const doseMatch = DOSE_NAME_PATTERN.exec(item.name);
+        if (!doseMatch) continue;
+        const dose = Number(doseMatch[2]);
+        if (dose < 1 || dose > 4) continue;
+        const baseName = doseMatch[1];
+        if (!potionDoseMap.has(baseName)) potionDoseMap.set(baseName, {});
+        potionDoseMap.get(baseName)[dose] = item;
       }
       names.sort();
       itemNameList.innerHTML = names.map((n) => `<option value="${n}"></option>`).join('');
@@ -145,7 +165,73 @@ ToolRegistry.register({
         const alchProfitPerItem = hasHighAlch ? item.highalch - runePrice.high : null;
         const totalAlchProfit = hasHighAlch ? qty * alchProfitPerItem : null;
 
-        const alchWins = hasHighAlch && totalAlchProfit > revenueSuggested;
+        // If this is a potion, check whether decanting to a different dose
+        // count before selling beats selling it as-is. Doses are conserved:
+        // the smallest whole-number trade between dose A and dose B is
+        // lcm(A,B)/A potions of A <-> lcm(A,B)/B potions of B (same as the
+        // Decanting Calculator tool). Any leftover that doesn't fill a full
+        // batch stays in its original dose and sells at the suggested price
+        // computed above.
+        const doseMatch = DOSE_NAME_PATTERN.exec(item.name);
+        const decantOptions = [];
+        if (doseMatch) {
+          const fromDose = Number(doseMatch[2]);
+          const baseName = doseMatch[1];
+          const variants = potionDoseMap.get(baseName);
+
+          if (variants) {
+            for (const toDoseKey of Object.keys(variants)) {
+              const toDose = Number(toDoseKey);
+              if (toDose === fromDose) continue;
+
+              const toItem = variants[toDose];
+              const toPriceEntry = latest[toItem.id];
+              if (!toPriceEntry || toPriceEntry.high == null || toPriceEntry.low == null) continue;
+
+              const lcm = (fromDose * toDose) / gcd(fromDose, toDose);
+              const fromCount = lcm / fromDose;
+              const toCount = lcm / toDose;
+
+              const batches = Math.floor(qty / fromCount);
+              if (batches <= 0) continue;
+              const remainder = qty - batches * fromCount;
+              const producedToQty = batches * toCount;
+
+              const toVolEntry = hourly[toItem.id];
+              const toHourlyVolume = toVolEntry ? (toVolEntry.highPriceVolume || 0) + (toVolEntry.lowPriceVolume || 0) : 0;
+              const toSpread = toPriceEntry.high - toPriceEntry.low;
+              const toVolumeRatio = toHourlyVolume > 0 ? producedToQty / toHourlyVolume : Infinity;
+              const toPriceFactor = 1 / (1 + toVolumeRatio);
+              const toSuggestedPrice = Math.round(toPriceEntry.low + toSpread * toPriceFactor);
+
+              const revenueFromDecanted = producedToQty * (toSuggestedPrice - geTax(toSuggestedPrice));
+              const revenueFromRemainder = remainder * (suggestedPrice - geTax(suggestedPrice));
+              const totalDecantRevenue = revenueFromDecanted + revenueFromRemainder;
+
+              decantOptions.push({
+                toDose,
+                toName: toItem.name,
+                fromCount,
+                toCount,
+                batches,
+                remainder,
+                producedToQty,
+                toSuggestedPrice,
+                totalDecantRevenue,
+                gain: totalDecantRevenue - revenueSuggested,
+              });
+            }
+          }
+        }
+        decantOptions.sort((a, b) => b.gain - a.gain);
+        const bestDecant = decantOptions.length > 0 ? decantOptions[0] : null;
+
+        const candidates = [{ label: 'Grand Exchange at the suggested price', value: revenueSuggested }];
+        if (hasHighAlch) candidates.push({ label: 'High alch', value: totalAlchProfit });
+        if (bestDecant) candidates.push({ label: `Decant to ${bestDecant.toDose}-dose, then sell`, value: bestDecant.totalDecantRevenue });
+        candidates.sort((a, b) => b.value - a.value);
+        const winner = candidates[0];
+        const runnerUp = candidates[1];
 
         lookupResult.innerHTML = `
           <div class="card" style="max-width: 560px;">
@@ -176,12 +262,32 @@ ToolRegistry.register({
               <div class="muted" style="margin-top: 12px;">This item can't be high alched.</div>
             `}
 
+            ${doseMatch ? (
+              bestDecant ? `
+                <div class="muted" style="margin-top: 12px;">Decant before selling?</div>
+                <div class="result-line">
+                  Decant ${fmt(bestDecant.batches * bestDecant.fromCount)} of your ${item.name}
+                  (${fmt(bestDecant.fromCount)} at a time) into ${fmt(bestDecant.producedToQty)} &times; ${bestDecant.toName}
+                  ${bestDecant.remainder > 0 ? `, keeping ${fmt(bestDecant.remainder)} un-decanted` : ''}
+                </div>
+                <div class="result-line">
+                  Estimated revenue after decanting:
+                  <span class="result-value ${bestDecant.gain >= 0 ? 'profit' : 'loss'}">${fmt(bestDecant.totalDecantRevenue)} gp</span>
+                  <span class="${bestDecant.gain >= 0 ? 'profit' : 'loss'}">
+                    (${bestDecant.gain >= 0 ? '+' : ''}${fmt(bestDecant.gain)} gp vs. selling as-is)
+                  </span>
+                </div>
+              ` : `
+                <div class="muted" style="margin-top: 12px;">
+                  Decanting: not enough ${item.name} on hand to make a full batch into another dose, or no other dose variant is trading right now.
+                </div>
+              `
+            ) : ''}
+
             <div class="result-line" style="margin-top: 12px;">
               Best option:
               <span class="result-value profit">
-                ${alchWins
-                  ? `High alch (+${fmt(totalAlchProfit - revenueSuggested)} gp over the suggested GE price)`
-                  : `Grand Exchange at the suggested price${hasHighAlch ? ` (+${fmt(revenueSuggested - totalAlchProfit)} gp over alching)` : ''}`}
+                ${winner.label}${runnerUp ? ` (+${fmt(winner.value - runnerUp.value)} gp over ${runnerUp.label.toLowerCase()})` : ''}
               </span>
             </div>
           </div>
